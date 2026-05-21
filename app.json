@@ -7,13 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
-
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0d0020"
     },
-
     "ios": {
       "bundleIdentifier": "com.hayvanevrimi.game",
       "buildNumber": "1",
@@ -22,7 +20,6 @@
         "NSUserTrackingUsageDescription": "Kişiselleştirilmiş reklam gösterebilmek için izninizi istiyoruz."
       }
     },
-
     "android": {
       "package": "com.hayvanevrimi.game",
       "versionCode": 1,
@@ -33,11 +30,9 @@
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
-
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
     "plugins": [
       "expo-localization",
       [
@@ -50,16 +45,20 @@
       [
         "expo-build-properties",
         {
-          "ios": { "useFrameworks": "static" },
-          "android": { "compileSdkVersion": 35 }
+          "ios": {
+            "useFrameworks": "static"
+          },
+          "android": {
+            "compileSdkVersion": 35
+          }
         }
       ]
     ],
-
     "extra": {
       "eas": {
-        "projectId": "EXPO_PROJECT_ID_BURAYA_GEL"
+        "projectId": "69142146-2cfa-47cb-9f52-5c83437c3e63"
       }
-    }
+    },
+    "owner": "aaslann"
   }
 }
