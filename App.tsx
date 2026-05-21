@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Modal, Platform, SafeAreaView, ScrollView, StatusBar,
+  Alert, Animated, Modal, Platform, SafeAreaView, ScrollView, StatusBar,
   StyleSheet, Text, TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
 import { GestureHandlerRootView, Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -10,6 +10,10 @@ import { COLORS, GRID_SIZE } from './src/utils/constants';
 import { Direction } from './src/types/game.types';
 import { hapticSwipe, hapticMerge, hapticUnlock, hapticGameOver } from './src/utils/haptics';
 import { playSwipe, playMerge, playUnlock, playGameOver } from './src/utils/sounds';
+import { initAds, showRewardedAd } from './src/utils/ads';
+import { initPurchases, checkAdFreeStatus, purchaseRemoveAds, restorePurchases } from './src/utils/purchases';
+import { BannerAdView } from './src/components/BannerAdView';
+import { useMonetizationStore } from './src/store/monetizationStore';
 
 const ND = Platform.OS !== 'web';
 const GAP = 8;
@@ -254,12 +258,17 @@ export default function App() {
     swipe, undo, resetGame, clearMergeFlags, claimDailyReward, markOnboardingSeen,
   } = useGameStore();
 
+  const { adFree, setAdFree } = useMonetizationStore();
+
   const [newAnimalId, setNewAnimalId]       = useState<number | null>(null);
   const [floatingScores, setFloatingScores] = useState<{ id: number; value: number }[]>([]);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showDaily, setShowDaily]           = useState(false);
   const [dailyStreak, setDailyStreak]       = useState(0);
   const [showCollection, setShowCollection] = useState(false);
+  const [showShop, setShowShop]             = useState(false);
+  const [adLoading, setAdLoading]           = useState(false);
+  const [shopLoading, setShopLoading]       = useState(false);
 
   const clearTimer   = useRef<any>(null);
   const prevGameOver = useRef(false);
@@ -268,8 +277,14 @@ export default function App() {
   swipeRef.current           = swipe;
   clearMergeFlagsRef.current = clearMergeFlags;
 
-  // İlk açılış: onboarding veya günlük ödül kontrolü
+  // İlk açılış: SDK başlatma + onboarding / günlük ödül
   useEffect(() => {
+    // Monetizasyon SDK'larını başlat (fire-and-forget)
+    initAds();
+    initPurchases();
+    checkAdFreeStatus().then((v) => { if (v) setAdFree(true); });
+
+    // Onboarding / günlük ödül
     const today = new Date().toISOString().split('T')[0];
     if (!hasSeenOnboarding) {
       setShowOnboarding(true);
@@ -305,6 +320,51 @@ export default function App() {
     if (newAnimals.length > 0) setNewAnimalId(newAnimals[0]);
     clearTimer.current && clearTimeout(clearTimer.current);
     clearTimer.current = setTimeout(() => clearMergeFlagsRef.current(), 350);
+  };
+
+  // Reklam izle → direkt undo uygula (orta oyun veya oyun sonu devam)
+  const handleWatchAdForUndo = async () => {
+    if (adLoading) return;
+    setAdLoading(true);
+    try {
+      const earned = await showRewardedAd();
+      if (earned) {
+        undo();
+        playUnlock();
+        hapticUnlock();
+      }
+    } finally {
+      setAdLoading(false);
+    }
+  };
+
+  // Mağaza: Reklamsız satın al
+  const handlePurchaseRemoveAds = async () => {
+    if (shopLoading) return;
+    setShopLoading(true);
+    try {
+      const ok = await purchaseRemoveAds();
+      if (ok) setAdFree(true);
+    } catch (e: any) {
+      Alert.alert('Hata', e?.message ?? 'Satın alma başarısız oldu.');
+    } finally {
+      setShopLoading(false);
+    }
+  };
+
+  // Mağaza: Önceki satın alımları geri yükle
+  const handleRestorePurchases = async () => {
+    if (shopLoading) return;
+    setShopLoading(true);
+    try {
+      const ok = await restorePurchases();
+      if (ok) { setAdFree(true); }
+      else { Alert.alert('Bilgi', 'Geri yüklenecek satın alım bulunamadı.'); }
+    } catch {
+      Alert.alert('Hata', 'Satın alım geri yüklenemedi.');
+    } finally {
+      setShopLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -394,18 +454,36 @@ export default function App() {
               </ScrollView>
             </View>
 
-            {/* ─ Butonlar ─ */}
+            {/* ─ Butonlar — satır 1 ─ */}
             <View style={styles.actions}>
-              <TouchableOpacity style={[styles.btn, styles.btnUndo, undoStack.length === 0 && { opacity: 0.35 }]} onPress={() => undo()} disabled={undoStack.length === 0}>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnUndo, undoStack.length === 0 && { opacity: 0.35 }]}
+                onPress={() => undo()}
+                disabled={undoStack.length === 0}
+              >
                 <Text style={styles.btnUndoText}>↩  Geri Al</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btn, styles.btnAd, (adLoading || undoStack.length === 0) && { opacity: 0.4 }]}
+                onPress={handleWatchAdForUndo}
+                disabled={adLoading || undoStack.length === 0}
+              >
+                <Text style={styles.btnAdText}>{adLoading ? '⏳ Yükleniyor…' : '📺  Undo Kazan'}</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={[styles.btn, styles.btnBoost]} onPress={resetGame}>
-                <Text style={styles.btnBoostText}>🔄  Yeni Oyun</Text>
+                <Text style={styles.btnBoostText}>🔄  Yeni</Text>
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={[styles.btn, styles.btnCollection]} onPress={() => setShowCollection(true)}>
-              <Text style={styles.btnBoostText}>🏆  Koleksiyon</Text>
-            </TouchableOpacity>
+
+            {/* ─ Butonlar — satır 2 ─ */}
+            <View style={styles.actions}>
+              <TouchableOpacity style={[styles.btn, styles.btnCollection]} onPress={() => setShowCollection(true)}>
+                <Text style={styles.btnBoostText}>🏆  Koleksiyon</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btn, styles.btnShop]} onPress={() => setShowShop(true)}>
+                <Text style={styles.btnShopText}>🛒  Mağaza</Text>
+              </TouchableOpacity>
+            </View>
 
           </ScrollView>
         </SwipeHandler>
@@ -424,12 +502,75 @@ export default function App() {
             <Text style={{ fontSize: 16, fontWeight: '700', color: COLORS.accent }}>En yüksek: {highestAnimal?.name}</Text>
             <Text style={{ fontSize: 14, color: 'rgba(255,255,255,0.7)' }}>Puan: {score.toLocaleString()}</Text>
             {score > 0 && score >= bestScore && <Text style={{ fontSize: 16, fontWeight: '900', color: COLORS.gold }}>🎉 Yeni Rekor!</Text>}
+
+            {/* Devam et — reklam izle */}
+            {undoStack.length > 0 && (
+              <TouchableOpacity
+                style={[styles.btn, styles.btnAd, { width: '100%' }, adLoading && { opacity: 0.5 }]}
+                onPress={handleWatchAdForUndo}
+                disabled={adLoading}
+              >
+                <Text style={styles.btnAdText}>{adLoading ? '⏳ Yükleniyor…' : '📺  Devam Et (Reklam İzle)'}</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity style={[styles.btn, styles.btnBoost, { width: '100%' }]} onPress={resetGame}>
               <Text style={styles.btnBoostText}>🔄 Tekrar Oyna</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* ─ Mağaza Modal ─ */}
+      <Modal visible={showShop} transparent animationType="fade" onRequestClose={() => setShowShop(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.modalCard}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <Text style={styles.modalTitle}>🛒 Mağaza</Text>
+              <TouchableOpacity onPress={() => setShowShop(false)}>
+                <Text style={{ fontSize: 22, color: 'rgba(255,255,255,0.5)' }}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            {adFree ? (
+              <View style={styles.adFreeActive}>
+                <Text style={{ fontSize: 24 }}>✅</Text>
+                <View>
+                  <Text style={{ fontWeight: '900', color: '#4ade80', fontSize: 15 }}>Reklamsız Oyna Aktif</Text>
+                  <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Tüm reklamlar kapalı</Text>
+                </View>
+              </View>
+            ) : (
+              <>
+                <View style={styles.shopItem}>
+                  <Text style={{ fontSize: 36 }}>🚫</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontWeight: '900', color: '#fff', fontSize: 15 }}>Reklamsız Oyna</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12 }}>Banner ve reklam videolarını kaldırır</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnBoost, { width: '100%' }, shopLoading && { opacity: 0.5 }]}
+                  onPress={handlePurchaseRemoveAds}
+                  disabled={shopLoading}
+                >
+                  <Text style={styles.btnBoostText}>{shopLoading ? '⏳ İşleniyor…' : '🛒  Satın Al'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btn, styles.btnUndo, { width: '100%' }, shopLoading && { opacity: 0.5 }]}
+                  onPress={handleRestorePurchases}
+                  disabled={shopLoading}
+                >
+                  <Text style={styles.btnUndoText}>♻️  Satın Alımları Geri Yükle</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ─ Banner Reklam ─ */}
+      <BannerAdView adFree={adFree} />
 
       <Modal visible={!!newAnimalId} transparent animationType="fade">
         <View style={styles.overlay}>
@@ -493,8 +634,15 @@ const styles = StyleSheet.create({
   btnUndo:       { backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
   btnUndoText:   { color: 'rgba(255,255,255,0.6)', fontWeight: '800', fontSize: 13 },
   btnBoost:      { backgroundColor: '#7c3aed' },
-  btnCollection: { backgroundColor: 'rgba(251,191,36,0.15)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)', borderRadius: 18, flex: 0 },
   btnBoostText:  { color: '#fff', fontWeight: '800', fontSize: 13 },
+  btnAd:         { backgroundColor: 'rgba(34,197,94,0.18)', borderWidth: 1, borderColor: 'rgba(34,197,94,0.4)' },
+  btnAdText:     { color: '#4ade80', fontWeight: '800', fontSize: 12 },
+  btnCollection: { backgroundColor: 'rgba(251,191,36,0.15)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)', borderRadius: 18 },
+  btnShop:       { backgroundColor: 'rgba(139,92,246,0.15)', borderWidth: 1, borderColor: 'rgba(139,92,246,0.4)', borderRadius: 18 },
+  btnShopText:   { color: '#c4b5fd', fontWeight: '800', fontSize: 13 },
+  // Shop modal
+  shopItem:      { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 16, padding: 12, width: '100%' },
+  adFreeActive:  { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: 'rgba(74,222,128,0.1)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.3)', borderRadius: 16, padding: 14, width: '100%' },
   overlay:       { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 32 },
   modalCard:     { backgroundColor: '#1a0035', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)', padding: 24, width: '100%', alignItems: 'center', gap: 8 },
   modalTitle:    { fontSize: 22, fontWeight: '900', color: '#fff' },
