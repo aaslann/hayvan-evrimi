@@ -4,6 +4,7 @@ import { immer } from 'zustand/middleware/immer';
 import { Direction, GameState, Grid } from '../types/game.types';
 import { createInitialGrid, cloneGrid, getHighestAnimalId } from '../engine/grid';
 import { processMove } from '../engine/moves';
+import { addRandomCell } from '../engine/spawner';
 import { isGameOver } from '../engine/validator';
 import { MAX_UNDO, COMBO_THRESHOLDS } from '../utils/constants';
 
@@ -12,15 +13,26 @@ const storage = typeof window !== 'undefined' && typeof window.localStorage !== 
   ? createJSONStorage(() => localStorage)
   : createJSONStorage(() => require('@react-native-async-storage/async-storage').default);
 
+const todayStr = () => new Date().toISOString().split('T')[0];
+
 interface GameStore extends GameState {
   unlockedAnimals: number[];
+  streak: number;
+  lastClaimedDate: string | null;
+  hasSeenOnboarding: boolean;
+
   swipe: (direction: Direction) => { newAnimals: number[]; earnedScore: number };
   undo: () => boolean;
   resetGame: () => void;
   clearMergeFlags: () => void;
+  claimDailyReward: () => { streak: number };
+  markOnboardingSeen: () => void;
 }
 
-const initialState = (): Omit<GameStore, 'swipe' | 'undo' | 'resetGame' | 'clearMergeFlags' | 'unlockedAnimals'> => ({
+const initialState = (): Omit<GameStore,
+  'swipe' | 'undo' | 'resetGame' | 'clearMergeFlags' |
+  'claimDailyReward' | 'markOnboardingSeen' | 'unlockedAnimals'
+> => ({
   grid: createInitialGrid(),
   score: 0,
   bestScore: 0,
@@ -29,6 +41,9 @@ const initialState = (): Omit<GameStore, 'swipe' | 'undo' | 'resetGame' | 'clear
   highestAnimalId: 1,
   comboCount: 0,
   undoStack: [],
+  streak: 0,
+  lastClaimedDate: null,
+  hasSeenOnboarding: false,
 });
 
 export const useGameStore = create<GameStore>()(
@@ -39,7 +54,7 @@ export const useGameStore = create<GameStore>()(
 
       swipe: (direction: Direction) => {
         const state = get();
-        if (state.isGameOver) return { newAnimals: [] };
+        if (state.isGameOver) return { newAnimals: [], earnedScore: 0 };
 
         const result = processMove(state.grid, direction);
         if (!result.changed) return { newAnimals: [], earnedScore: 0 };
@@ -108,6 +123,36 @@ export const useGameStore = create<GameStore>()(
           );
         });
       },
+
+      claimDailyReward: () => {
+        const { streak, lastClaimedDate } = get();
+        const today = todayStr();
+
+        // Seri hesapla: dün geldiyse devam eder, daha eskiyse sıfırlanır
+        let newStreak = 1;
+        if (lastClaimedDate) {
+          const yesterday = new Date();
+          yesterday.setDate(yesterday.getDate() - 1);
+          if (lastClaimedDate === yesterday.toISOString().split('T')[0]) {
+            newStreak = streak + 1;
+          }
+        }
+
+        // Mevcut grida bonus hücre ekle
+        const bonusGrid = addRandomCell(get().grid);
+
+        set((s) => {
+          s.streak = newStreak;
+          s.lastClaimedDate = today;
+          s.grid = bonusGrid;
+        });
+
+        return { streak: newStreak };
+      },
+
+      markOnboardingSeen: () => {
+        set((s) => { s.hasSeenOnboarding = true; });
+      },
     })),
     {
       name: 'hayvan-evrimi-v1',
@@ -115,6 +160,9 @@ export const useGameStore = create<GameStore>()(
       partialize: (s) => ({
         bestScore: s.bestScore,
         unlockedAnimals: s.unlockedAnimals,
+        streak: s.streak,
+        lastClaimedDate: s.lastClaimedDate,
+        hasSeenOnboarding: s.hasSeenOnboarding,
       }),
     }
   )
