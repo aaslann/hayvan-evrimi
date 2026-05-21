@@ -100,10 +100,10 @@ const ONBOARD_SLIDES = [
     visual: '🥚 + 🥚 = 🐥',
   },
   {
-    emoji: '🦄',
-    title: 'Evrimi Tamamla!',
-    body: "9 farklı hayvanı keşfet. Efsanevi Unicorn'a ulaşmaya çalış!",
-    visual: '🥚 › 🐥 › 🐸 › 🦊 › 🦁 › 🦄',
+    emoji: '🌌',
+    title: 'Sonsuz Evrim!',
+    body: '15 farklı hayvanı keşfet. Efsanevi Galaksi\'ye ulaşmaya çalış!',
+    visual: '🥚 › 🐥 › 🦁 › 🐉 › 🦄 › 🔥 › 🌌',
   },
 ];
 
@@ -196,7 +196,7 @@ const CollectionModal = ({
         {/* İstatistikler */}
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
-            <Text style={styles.statVal}>{unlockedAnimals.length}/9</Text>
+            <Text style={styles.statVal}>{unlockedAnimals.length}/{ANIMALS.length}</Text>
             <Text style={styles.statLabel}>Hayvan</Text>
           </View>
           <View style={styles.statBox}>
@@ -243,6 +243,7 @@ const CollectionModal = ({
 
 const rarityColor = (r: string) => ({
   common: '#6b7280', rare: '#3b82f6', epic: '#8b5cf6', legendary: '#f59e0b',
+  mythic: '#f43f5e', cosmic: '#06b6d4',
 }[r] ?? '#6b7280');
 
 // ─── App ─────────────────────────────────────────────────────────────────────
@@ -321,7 +322,7 @@ export default function App() {
   }, []);
 
   const newAnimal     = newAnimalId ? getAnimal(newAnimalId) : null;
-  const nextAnimal    = getAnimal(Math.min(highestAnimalId + 1, 9));
+  const nextAnimal    = getAnimal(Math.min(highestAnimalId + 1, ANIMALS.length));
   const highestAnimal = getAnimal(highestAnimalId);
 
   return (
@@ -351,11 +352,11 @@ export default function App() {
 
             {/* ─ Hedef bar ─ */}
             <View style={styles.targetBar}>
-              <Text style={{ fontSize: 32 }}>{nextAnimal?.emoji ?? '🦄'}</Text>
+              <Text style={{ fontSize: 32 }}>{highestAnimalId < ANIMALS.length ? nextAnimal?.emoji : '🌌'}</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.targetLabel}>HEDEF EVRİM</Text>
-                <Text style={styles.targetName}>{nextAnimal?.name ?? 'Unicorn'} için oyna!</Text>
-                <View style={styles.track}><View style={[styles.trackFill, { width: `${(highestAnimalId / 9) * 100}%` as any }]} /></View>
+                <Text style={styles.targetName}>{highestAnimalId < ANIMALS.length ? `${nextAnimal?.name} için oyna!` : '🌌 MAX — Galaksi Efendisi!'}</Text>
+                <View style={styles.track}><View style={[styles.trackFill, { width: `${(highestAnimalId / ANIMALS.length) * 100}%` as any }]} /></View>
               </View>
               <View style={styles.starPill}><Text style={{ color: COLORS.gold, fontWeight: '900', fontSize: 13 }}>⭐ {Math.floor(score / 100)}</Text></View>
             </View>
