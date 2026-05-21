@@ -32,6 +32,13 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
+
+# Google Play service account (gizli — asla commit'leme)
+google-service-account.json
+
+# EAS credentials (otomatik oluşturulur)
+credentials.json
 
 # typescript
 *.tsbuildinfo
