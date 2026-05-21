@@ -14,7 +14,7 @@ const storage = typeof window !== 'undefined' && typeof window.localStorage !== 
 
 interface GameStore extends GameState {
   unlockedAnimals: number[];
-  swipe: (direction: Direction) => { newAnimals: number[] };
+  swipe: (direction: Direction) => { newAnimals: number[]; earnedScore: number };
   undo: () => boolean;
   resetGame: () => void;
   clearMergeFlags: () => void;
@@ -42,7 +42,7 @@ export const useGameStore = create<GameStore>()(
         if (state.isGameOver) return { newAnimals: [] };
 
         const result = processMove(state.grid, direction);
-        if (!result.changed) return { newAnimals: [] };
+        if (!result.changed) return { newAnimals: [], earnedScore: 0 };
 
         const comboMultiplier = COMBO_THRESHOLDS.find(
           (t) => result.mergedAnimalIds.length >= t.count
@@ -72,7 +72,7 @@ export const useGameStore = create<GameStore>()(
           });
         });
 
-        return { newAnimals };
+        return { newAnimals, earnedScore };
       },
 
       undo: () => {

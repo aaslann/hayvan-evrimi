@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Modal, SafeAreaView, ScrollView, StatusBar,
+  Animated, Modal, Platform, SafeAreaView, ScrollView, StatusBar,
   StyleSheet, Text, TouchableOpacity, View, useWindowDimensions,
 } from 'react-native';
 import { GestureHandlerRootView, Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -8,6 +8,10 @@ import { useGameStore } from './src/store/gameStore';
 import { getAnimal, ANIMALS } from './src/data/animals';
 import { COLORS, GRID_SIZE } from './src/utils/constants';
 import { Direction } from './src/types/game.types';
+import { hapticSwipe, hapticMerge, hapticUnlock, hapticGameOver } from './src/utils/haptics';
+import { playSwipe, playMerge, playUnlock, playGameOver } from './src/utils/sounds';
+
+const ND = Platform.OS !== 'web'; // useNativeDriver — web'de native module yok
 
 const GAP = 8;
 const PADDING = 10;
@@ -16,10 +20,10 @@ const Cell = ({ cell, size }: { cell: any; size: number }) => {
   const animal = cell ? getAnimal(cell.animalId) : null;
   const scaleAnim = useRef(new Animated.Value(cell?.isNew ? 0 : 1)).current;
   useEffect(() => {
-    if (cell?.isNew) Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true, damping: 12 } as any).start();
+    if (cell?.isNew) Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: ND, damping: 12 }).start();
     else if (cell?.isMerged) Animated.sequence([
-      Animated.spring(scaleAnim, { toValue: 1.2, useNativeDriver: true } as any),
-      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: true } as any),
+      Animated.spring(scaleAnim, { toValue: 1.2, useNativeDriver: ND }),
+      Animated.spring(scaleAnim, { toValue: 1, useNativeDriver: ND }),
     ]).start();
   }, [cell?.isNew, cell?.isMerged, cell?.id]);
 
@@ -30,6 +34,25 @@ const Cell = ({ cell, size }: { cell: any; size: number }) => {
       <Text style={{ fontSize: size * 0.42 }}>{animal.emoji}</Text>
       <Text style={[styles.cellName, { color: animal.color.text, fontSize: size * 0.13 }]}>{animal.name}</Text>
     </Animated.View>
+  );
+};
+
+const FloatingScore = ({ value, onDone }: { value: number; onDone: () => void }) => {
+  const y       = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(y,       { toValue: -56, duration: 900, useNativeDriver: ND }),
+      Animated.sequence([
+        Animated.delay(300),
+        Animated.timing(opacity, { toValue: 0, duration: 600, useNativeDriver: ND }),
+      ]),
+    ]).start(() => onDone());
+  }, []);
+  return (
+    <Animated.Text style={[styles.floatingScore, { transform: [{ translateY: y }], opacity }]}>
+      +{value}
+    </Animated.Text>
   );
 };
 
@@ -61,20 +84,44 @@ const SwipeHandler = ({ onSwipe, children }: { onSwipe: (d: Direction) => void; 
 
 export default function App() {
   const { grid, score, bestScore, isGameOver, highestAnimalId, undoStack, unlockedAnimals, swipe, undo, resetGame, clearMergeFlags } = useGameStore();
-  const [newAnimalId, setNewAnimalId] = useState<number | null>(null);
-  const clearTimer = useRef<any>(null);
+  const [newAnimalId, setNewAnimalId]         = useState<number | null>(null);
+  const [floatingScores, setFloatingScores]   = useState<{ id: number; value: number }[]>([]);
+  const clearTimer  = useRef<any>(null);
+  const prevGameOver = useRef(false);
 
-  const swipeRef = useRef(swipe);
+  const swipeRef           = useRef(swipe);
   const clearMergeFlagsRef = useRef(clearMergeFlags);
-  swipeRef.current = swipe;
+  swipeRef.current           = swipe;
   clearMergeFlagsRef.current = clearMergeFlags;
 
   const handleSwipe = (dir: Direction) => {
-    const { newAnimals } = swipeRef.current(dir);
+    const { newAnimals, earnedScore } = swipeRef.current(dir);
+
+    // Ses + titreşim
+    if (newAnimals.length > 0) {
+      playUnlock(); hapticUnlock();
+    } else if (earnedScore > 0) {
+      playMerge(); hapticMerge();
+    } else {
+      playSwipe(); hapticSwipe();
+    }
+
+    // Uçan skor
+    if (earnedScore > 0) {
+      const id = Date.now();
+      setFloatingScores(p => [...p, { id, value: earnedScore }]);
+    }
+
     if (newAnimals.length > 0) setNewAnimalId(newAnimals[0]);
     clearTimer.current && clearTimeout(clearTimer.current);
     clearTimer.current = setTimeout(() => clearMergeFlagsRef.current(), 350);
   };
+
+  // Oyun bitti sesi + titreşim
+  useEffect(() => {
+    if (isGameOver && !prevGameOver.current) { playGameOver(); hapticGameOver(); }
+    prevGameOver.current = isGameOver;
+  }, [isGameOver]);
 
   useEffect(() => {
     const map: Record<string, Direction> = { ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' };
@@ -117,7 +164,16 @@ export default function App() {
               <View style={styles.starPill}><Text style={{ color: COLORS.gold, fontWeight: '900', fontSize: 13 }}>⭐ {Math.floor(score / 100)}</Text></View>
             </View>
 
-            <Grid grid={grid} />
+            <View style={{ alignSelf: 'center' }}>
+              <Grid grid={grid} />
+              {floatingScores.map(f => (
+                <FloatingScore
+                  key={f.id}
+                  value={f.value}
+                  onDone={() => setFloatingScores(p => p.filter(x => x.id !== f.id))}
+                />
+              ))}
+            </View>
 
             <View style={styles.evoSection}>
               <Text style={styles.sectionTitle}>EVRİM ZİNCİRİ</Text>
@@ -228,6 +284,7 @@ const styles = StyleSheet.create({
   btnUndoText: { color: 'rgba(255,255,255,0.6)', fontWeight: '800', fontSize: 13 },
   btnBoost: { backgroundColor: '#7c3aed' },
   btnBoostText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  floatingScore: { position: 'absolute', alignSelf: 'center', top: '38%', fontSize: 30, fontWeight: '900', color: COLORS.gold, textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6, zIndex: 99, pointerEvents: 'none' },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: 32 },
   modalCard: { backgroundColor: '#1a0035', borderRadius: 24, borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)', padding: 24, width: '100%', alignItems: 'center', gap: 8 },
   modalTitle: { fontSize: 22, fontWeight: '900', color: '#fff' },
